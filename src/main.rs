@@ -1,5 +1,5 @@
-use evm::evm;
-use primitive_types::U256;
+use ethereum_types::U256;
+use evm::{evm, Code};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -11,53 +11,39 @@ struct Evmtest {
 }
 
 #[derive(Debug, Deserialize)]
-struct Code {
-    asm: String,
-    bin: String,
-}
-
-#[derive(Debug, Deserialize)]
 struct Expect {
-    stack: Option<Vec<String>>,
     success: bool,
+    #[serde(default)]
+    stack: Vec<String>,
     // #[serde(rename = "return")]
-    // ret: Option<String>,
+    // #[serde(default)]
+    // ret: String,
 }
 
 fn main() {
     let text = std::fs::read_to_string("../evm.json").unwrap();
-    let data: Vec<Evmtest> = serde_json::from_str(&text).unwrap();
+    let mut data: Vec<Evmtest> = serde_json::from_str(&text).unwrap();
 
     let total = data.len();
 
-    for (index, test) in data.iter().enumerate() {
+    for (index, test) in data.iter_mut().enumerate() {
         println!("Test {} of {}: {}", index + 1, total, test.name);
 
         let code: Vec<u8> = hex::decode(&test.code.bin).unwrap();
 
         let result = evm(&code);
 
-        let mut expected_stack: Vec<U256> = Vec::new();
-        if let Some(ref stacks) = test.expect.stack {
-            for value in stacks {
-                expected_stack.push(U256::from_str_radix(value, 16).unwrap());
-            }
-        }
+        let expected_stack: Vec<U256> = test
+            .expect
+            .stack
+            .iter()
+            .map(|v| U256::from_str_radix(v, 16).unwrap())
+            .collect();
 
-        let mut matching = result.stack.len() == expected_stack.len();
-        if matching {
-            for i in 0..result.stack.len() {
-                if result.stack[i] != expected_stack[i] {
-                    matching = false;
-                    break;
-                }
-            }
-        }
-
-        matching = matching && result.success == test.expect.success;
+        let matching = result.success == test.expect.success && result.stack == expected_stack;
 
         if !matching {
-            println!("Instructions: \n{}\n", test.code.asm);
+            println!("Instructions: \n{}\n", test.code.asm.as_ref().unwrap());
 
             println!("Expected success: {:?}", test.expect.success);
             println!("Expected stack: [");
@@ -81,4 +67,3 @@ fn main() {
     }
     println!("Congratulations!");
 }
-
